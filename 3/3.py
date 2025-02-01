@@ -5,11 +5,8 @@ from timeit import default_timer as timer
 
 # Функція побудови таблиці зсувів для алгоритму Boyer-Moore
 def build_shift_table(pattern):
-    table = {}
-    length = len(pattern)
-    for index, char in enumerate(pattern[:-1]):
-        table[char] = length - index - 1
-    table.setdefault(pattern[-1], length)
+    table = {char: len(pattern) - index - 1 for index, char in enumerate(pattern[:-1])}
+    table.setdefault(pattern[-1], len(pattern))
     return table
 
 # Алгоритм Boyer-Moore
@@ -25,72 +22,50 @@ def boyer_moore_search(text, pattern):
         i += shift_table.get(text[i + len(pattern) - 1], len(pattern))
     return -1
 
-# Функція обчислення масиву LPS для алгоритму KMP
+# Алгоритм KMP
 def compute_lps(pattern):
     lps = [0] * len(pattern)
-    length = 0
-    i = 1
+    length, i = 0, 1
     while i < len(pattern):
         if pattern[i] == pattern[length]:
             length += 1
             lps[i] = length
             i += 1
+        elif length:
+            length = lps[length - 1]
         else:
-            if length != 0:
-                length = lps[length - 1]
-            else:
-                lps[i] = 0
-                i += 1
+            i += 1
     return lps
 
-# Алгоритм KMP
 def kmp_search(text, pattern):
-    M = len(pattern)
-    N = len(text)
-    lps = compute_lps(pattern)
-    i = j = 0
-    while i < N:
+    lps, i, j = compute_lps(pattern), 0, 0
+    while i < len(text):
         if pattern[j] == text[i]:
-            i += 1
-            j += 1
-        elif j != 0:
+            i, j = i + 1, j + 1
+        elif j:
             j = lps[j - 1]
         else:
             i += 1
-        if j == M:
+        if j == len(pattern):
             return i - j
     return -1
 
-# Поліноміальний хеш-функція для алгоритму Rabin-Karp
-def polynomial_hash(s, base=256, modulus=101):
-    hash_value = 0
-    for char in s:
-        hash_value = (hash_value * base + ord(char)) % modulus
-    return hash_value
-
 # Алгоритм Rabin-Karp
+def polynomial_hash(s, base=256, modulus=101):
+    return sum((ord(c) * pow(base, len(s)-1-i, modulus)) % modulus for i, c in enumerate(s)) % modulus
+
 def rabin_karp_search(text, pattern):
-    pattern_length = len(pattern)
-    text_length = len(text)
-    base = 256
-    modulus = 101
-
-    pattern_hash = polynomial_hash(pattern, base, modulus)
-    text_slice_hash = polynomial_hash(text[:pattern_length], base, modulus)
-
-    h_multiplier = pow(base, pattern_length - 1) % modulus
-
+    pattern_length, text_length = len(pattern), len(text)
+    pattern_hash = polynomial_hash(pattern)
+    text_hash = polynomial_hash(text[:pattern_length])
+    h_multiplier = pow(256, pattern_length - 1, 101)
+    
     for i in range(text_length - pattern_length + 1):
-        if pattern_hash == text_slice_hash:
-            if text[i:i+pattern_length] == pattern:
-                return i
-
+        if pattern_hash == text_hash and text[i:i+pattern_length] == pattern:
+            return i
         if i < text_length - pattern_length:
-            text_slice_hash = (text_slice_hash - ord(text[i]) * h_multiplier) % modulus
-            text_slice_hash = (text_slice_hash * base + ord(text[i + pattern_length])) % modulus
-            if text_slice_hash < 0:
-                text_slice_hash += modulus
-
+            text_hash = (text_hash - ord(text[i]) * h_multiplier) * 256 + ord(text[i + pattern_length])
+            text_hash %= 101
     return -1
 
 # Функція для вимірювання часу виконання пошуку
@@ -107,33 +82,25 @@ def run_tests(text, existing_pattern, non_existing_pattern):
         ("KMP", kmp_search),
         ("Rabin-Karp", rabin_karp_search)
     ]
-    
-    results = {}
-    for name, func in algorithms:
-        time_existing, _ = time_search(func, text, existing_pattern)
-        time_non_existing, _ = time_search(func, text, non_existing_pattern)
-        results[name] = (time_existing, time_non_existing)
-    
-    return results
+    return {name: (
+        time_search(func, text, existing_pattern)[0],
+        time_search(func, text, non_existing_pattern)[0]
+    ) for name, func in algorithms}
 
 # Читання файлу
 def read_file(filename):
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(script_dir, filename)
+    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()
     except UnicodeDecodeError:
-        # Якщо UTF-8 не працює, пробуємо з іншою кодуванням
         with open(file_path, 'r', encoding='iso-8859-1') as file:
             return file.read()
 
-# Функція для отримання випадкової підстрічки з тексту
+# Функція для отримання випадкових підстрічок
 def get_random_substring(text, length=10):
-    start = random.randint(0, len(text) - length)
-    return text[start:start+length]
+    return text[random.randint(0, len(text) - length):][:length]
 
-# Функція для отримання випадкової непідтвердженої підстрічки
 def get_non_existing_substring(text, length=10):
     while True:
         non_existing = ''.join(random.choices(string.ascii_lowercase, k=length))
@@ -145,12 +112,12 @@ def print_table(results, article_num):
     print(f"\nРезультати для Статті {article_num}:")
     print(f"{'Алгоритм':<15}{'Час (Існуючий) (с)':<25}{'Час (Неіснуючий) (с)'}")
     print("-" * 60)
-    for algo, times in results.items():
-        print(f"{algo:<15}{times[0]:<25.6f}{times[1]:<25.6f}")
+    for algo, (time_existing, time_non_existing) in results.items():
+        print(f"{algo:<15}{time_existing:<25.6f}{time_non_existing:<25.6f}")
 
-# Функція для знаходження найшвидшого алгоритму
-def fastest_algo(results):
-    return min(results, key=lambda x: sum(results[x]))
+# Визначення найшвидшого алгоритму
+def fastest_algo(results, pattern_type='existing'):
+    return min(results, key=lambda x: results[x][0] if pattern_type == 'existing' else results[x][1])
 
 if __name__ == "__main__":
     # Читання файлів
@@ -158,44 +125,24 @@ if __name__ == "__main__":
     article2 = read_file("article2.txt")
 
     # Отримання випадкових підстрічок
-    existing_pattern_1 = get_random_substring(article1)
-    non_existing_pattern_1 = get_non_existing_substring(article1)
-
-    existing_pattern_2 = get_random_substring(article2)
-    non_existing_pattern_2 = get_non_existing_substring(article2)
+    existing_pattern_1, non_existing_pattern_1 = get_random_substring(article1), get_non_existing_substring(article1)
+    existing_pattern_2, non_existing_pattern_2 = get_random_substring(article2), get_non_existing_substring(article2)
 
     # Запуск тестів для обох статей
-    results_1 = run_tests(article1, existing_pattern_1, non_existing_pattern_1)
-    results_2 = run_tests(article2, existing_pattern_2, non_existing_pattern_2)
+    results_1, results_2 = run_tests(article1, existing_pattern_1, non_existing_pattern_1), run_tests(article2, existing_pattern_2, non_existing_pattern_2)
 
     # Виведення результатів у таблицю
     print_table(results_1, 1)
     print_table(results_2, 2)
 
-    # Визначення найшвидших алгоритмів для існуючих патернів
-    fastest_existing_1 = fastest_algo({k: (v[0], 0) for k, v in results_1.items()})
-    fastest_existing_2 = fastest_algo({k: (v[0], 0) for k, v in results_2.items()})
-
-    # Визначення найшвидших алгоритмів для неіснуючих патернів
-    fastest_non_existing_1 = fastest_algo({k: (0, v[1]) for k, v in results_1.items()})
-    fastest_non_existing_2 = fastest_algo({k: (0, v[1]) for k, v in results_2.items()})
-
-    # Виведення висновків
+    # Визначення найшвидших алгоритмів для існуючих та неіснуючих патернів
     print("\nВисновки:")
-    print(f"Найшвидший алгоритм для Статті 1 (Існуючий патерн): {fastest_existing_1}")
-    print(f"Найшвидший алгоритм для Статті 1 (Неіснуючий патерн): {fastest_non_existing_1}")
-    print(f"Найшвидший алгоритм для Статті 2 (Існуючий патерн): {fastest_existing_2}")
-    print(f"Найшвидший алгоритм для Статті 2 (Неіснуючий патерн): {fastest_non_existing_2}")
+    print(f"Найшвидший алгоритм для Статті 1 (Існуючий патерн): {fastest_algo(results_1)}")
+    print(f"Найшвидший алгоритм для Статті 1 (Неіснуючий патерн): {fastest_algo(results_1, 'non_existing')}")
+    print(f"Найшвидший алгоритм для Статті 2 (Існуючий патерн): {fastest_algo(results_2)}")
+    print(f"Найшвидший алгоритм для Статті 2 (Неіснуючий патерн): {fastest_algo(results_2, 'non_existing')}")
 
-    # Визначення загального найшвидшого алгоритму для існуючого патерну
-    fastest_overall_existing = fastest_algo({
-        k: (v[0], 0) for k, v in {**results_1, **results_2}.items()
-    })
-
-    # Визначення загального найшвидшого алгоритму для неіснуючого патерну
-    fastest_overall_non_existing = fastest_algo({
-        k: (0, v[1]) for k, v in {**results_1, **results_2}.items()
-    })
-
-    print(f"Загальний найшвидший алгоритм для Існуючого патерну: {fastest_overall_existing}")
-    print(f"Загальний найшвидший алгоритм для Неіснуючого патерну: {fastest_overall_non_existing}")
+    # Визначення загального найшвидшого алгоритму для існуючого та неіснуючого патернів
+    all_results = {**results_1, **results_2}
+    print(f"Загальний найшвидший алгоритм для Існуючого патерну: {fastest_algo(all_results)}")
+    print(f"Загальний найшвидший алгоритм для Неіснуючого патерну: {fastest_algo(all_results, 'non_existing')}")
